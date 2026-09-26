@@ -49,6 +49,22 @@
 		};
 	};
 
+	leds {
+		compatible = "gpio-leds";
+
+		pinctrl-0 = <&cam_indicator_en>;
+		pinctrl-names = "default";
+
+		privacy_led: led-camera-indicator {
+			label = "white:camera-indicator";
+			function = LED_FUNCTION_INDICATOR;
+			color = <LED_COLOR_ID_WHITE>;
+			gpios = <&tlmm 225 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "none";
+			default-state = "off";
+		};
+	};
+
 	pmic-glink {
 		compatible = "qcom,x1e80100-pmic-glink",
 			     "qcom,sm8550-pmic-glink",
@@ -1036,6 +1052,9 @@
 
 		avdd-supply = <&vreg_l7b_2p8>;
 		dovdd-supply = <&vreg_l3m_1p8>;
+
+		leds = <&privacy_led>;
+		led-names = "privacy";
 
 		orientation = <0>;	/* Front-facing */
 		rotation = <0>;
