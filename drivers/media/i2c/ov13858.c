@@ -1856,8 +1856,10 @@ static int ov13858_init_controls(struct ov13858 *ov13858)
 	if (ov13858->link_freq)
 		ov13858->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
+	/* The menu runs from the highest link frequency to the lowest */
 	pixel_rate_max = link_freq_to_pixel_rate(link_freq_menu_items[0]);
-	pixel_rate_min = link_freq_to_pixel_rate(link_freq_menu_items[1]);
+	pixel_rate_min =
+		link_freq_to_pixel_rate(link_freq_menu_items[OV13858_NUM_OF_LINK_FREQS - 1]);
 	/* By default, PIXEL_RATE is read only */
 	ov13858->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr, &ov13858_ctrl_ops,
 						V4L2_CID_PIXEL_RATE,
