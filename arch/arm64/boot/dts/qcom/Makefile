@@ -437,6 +437,7 @@ x1e80100-medion-sprchrgd-14-s1-el2-dtbs	:= x1e80100-medion-sprchrgd-14-s1.dtb x1
 dtb-$(CONFIG_ARCH_QCOM)	+= x1e80100-medion-sprchrgd-14-s1.dtb x1e80100-medion-sprchrgd-14-s1-el2.dtb
 x1e80100-microsoft-denali-oled-el2-dtbs	:= x1e80100-microsoft-denali-oled.dtb x1-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= x1e80100-microsoft-denali-oled.dtb x1e80100-microsoft-denali-oled-el2.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= x1e80100-microsoft-denali-oled-5g.dtb
 x1e80100-microsoft-romulus13-el2-dtbs	:= x1e80100-microsoft-romulus13.dtb x1-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= x1e80100-microsoft-romulus13.dtb x1e80100-microsoft-romulus13-el2.dtb
 x1e80100-microsoft-romulus15-el2-dtbs	:= x1e80100-microsoft-romulus15.dtb x1-el2.dtbo
