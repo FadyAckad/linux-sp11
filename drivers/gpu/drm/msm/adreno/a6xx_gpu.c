@@ -2237,6 +2237,7 @@ static int a6xx_gmu_pm_suspend(struct msm_gpu *gpu)
 		for (i = 0; i < gpu->nr_rings; i++)
 			a6xx_gpu->shadow[i] = 0;
 
+	a6xx_preempt_record_reset(gpu);
 	gpu->suspend_count++;
 
 	return 0;
@@ -2276,6 +2277,7 @@ static int a6xx_pm_suspend(struct msm_gpu *gpu)
 		for (i = 0; i < gpu->nr_rings; i++)
 			a6xx_gpu->shadow[i] = 0;
 
+	a6xx_preempt_record_reset(gpu);
 	gpu->suspend_count++;
 
 	return 0;
