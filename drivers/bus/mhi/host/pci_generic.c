@@ -1701,12 +1701,31 @@ err_recovery:
 
 static int  __maybe_unused mhi_pci_suspend(struct device *dev)
 {
+	struct mhi_pci_device *mhi_pdev = dev_get_drvdata(dev);
+	struct mhi_controller *mhi_cntrl = &mhi_pdev->mhi_cntrl;
+	int ret;
+
 	pm_runtime_disable(dev);
+	ret = mhi_pci_runtime_suspend(dev);
+	if (ret != -EBUSY)
+		return ret;
+
+	/* The device refused M3, e.g. with transfers still pending. Do not
+	 * abort the system suspend for it: power MHI down as for hibernation,
+	 * and let the resume restart the device through the recovery.
+	 */
+	dev_warn(dev, "device busy, powering it down for system suspend\n");
+	if (test_and_clear_bit(MHI_PCI_DEV_STARTED, &mhi_pdev->status)) {
+		mhi_power_down(mhi_cntrl, false);
+		mhi_unprepare_after_power_down(mhi_cntrl);
+	}
+
 	return mhi_pci_runtime_suspend(dev);
 }
 
 static int __maybe_unused mhi_pci_resume(struct device *dev)
 {
+	struct mhi_pci_device *mhi_pdev = dev_get_drvdata(dev);
 	int ret;
 
 	/* Depending the platform, device may have lost power (d3cold), we need
@@ -1714,6 +1733,10 @@ static int __maybe_unused mhi_pci_resume(struct device *dev)
 	 */
 	ret = mhi_pci_runtime_resume(dev);
 	pm_runtime_enable(dev);
+
+	/* Restart a device that mhi_pci_suspend() powered down */
+	if (!test_bit(MHI_PCI_DEV_STARTED, &mhi_pdev->status))
+		queue_work(system_long_wq, &mhi_pdev->recovery_work);
 
 	return ret;
 }
