@@ -19,6 +19,12 @@
 	firmware-name = "qcom/x1e80100/microsoft/Denali/qcdxkmsuc8380.mbn";
 };
 
+&iris {
+	firmware-name = "qcom/x1e80100/microsoft/Denali/qcvss8380.mbn";
+
+	status = "okay";
+};
+
 &panel {
 	compatible = "samsung,atna30dw01", "samsung,atna33xc20";
 };
