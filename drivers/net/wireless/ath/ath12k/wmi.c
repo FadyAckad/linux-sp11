@@ -6895,6 +6895,7 @@ static int ath12k_reg_11d_new_cc_event(struct ath12k_base *ab, struct sk_buff *s
 	struct ath12k *ar;
 	struct ath12k_pdev *pdev;
 	const void **tb;
+	bool keep;
 	int ret, i;
 
 	tb = ath12k_wmi_tlv_parse(ab, skb);
@@ -6910,13 +6911,21 @@ static int ath12k_reg_11d_new_cc_event(struct ath12k_base *ab, struct sk_buff *s
 		return -EPROTO;
 	}
 
+	/* A scan stopped before it found a country, as when the interface
+	 * goes down for a system suspend, reports "00": keep the country the
+	 * scan found before, so that a restart of the radio can restore it.
+	 */
 	spin_lock_bh(&ab->base_lock);
-	memcpy(&ab->new_alpha2, &ev->new_alpha2, REG_ALPHA2_LEN);
+	keep = !memcmp(&ev->new_alpha2, "00", REG_ALPHA2_LEN) &&
+	       ab->new_alpha2[0] && memcmp(ab->new_alpha2, "00", REG_ALPHA2_LEN);
+	if (!keep)
+		memcpy(&ab->new_alpha2, &ev->new_alpha2, REG_ALPHA2_LEN);
 	spin_unlock_bh(&ab->base_lock);
 
-	ath12k_dbg(ab, ATH12K_DBG_WMI, "wmi 11d new cc %c%c\n",
+	ath12k_dbg(ab, ATH12K_DBG_WMI, "wmi 11d new cc %c%c%s\n",
 		   ab->new_alpha2[0],
-		   ab->new_alpha2[1]);
+		   ab->new_alpha2[1],
+		   keep ? " (kept, the scan reported no country)" : "");
 
 	for (i = 0; i < ab->num_radios; i++) {
 		pdev = &ab->pdevs[i];
@@ -6926,7 +6935,8 @@ static int ath12k_reg_11d_new_cc_event(struct ath12k_base *ab, struct sk_buff *s
 		complete(&ar->completed_11d_scan);
 	}
 
-	queue_work(ab->workqueue, &ab->update_11d_work);
+	if (!keep)
+		queue_work(ab->workqueue, &ab->update_11d_work);
 
 	return 0;
 }
