@@ -9833,6 +9833,53 @@ static int ath12k_mac_start(struct ath12k *ar)
 		goto err;
 	}
 
+	/* The firmware comes up in world roaming after every power-down, as
+	 * after a system suspend. Give it the country the 11d scan found
+	 * before, so that the first scan runs with the right channel list.
+	 * The crash recovery sends it from reconfig_complete itself. Wait
+	 * for the firmware's answer that carries the country: its own first
+	 * regulatory event may arrive in the meantime, the interfaces added
+	 * next re-apply the rules last received, and the regd_updated gate
+	 * would drop the answer once the world-roaming rules are in.
+	 */
+	if (ah->state == ATH12K_HW_STATE_ON &&
+	    ab->hw_params->current_cc_support &&
+	    ar->alpha2[0] != 0 && ar->alpha2[1] != 0 &&
+	    memcmp(ar->alpha2, "00", 2) != 0) {
+		struct wmi_set_current_country_arg arg = {};
+		unsigned long deadline = jiffies + msecs_to_jiffies(500);
+		struct ath12k_reg_info *reg_info;
+		bool answered = false;
+
+		memcpy(&arg.alpha2, ar->alpha2, 2);
+		reinit_completion(&ar->regd_update_completed);
+		if (!ath12k_wmi_send_set_current_country_cmd(ar, &arg)) {
+			while (time_before(jiffies, deadline)) {
+				if (!wait_for_completion_timeout(&ar->regd_update_completed,
+								 deadline - jiffies))
+					break;
+
+				spin_lock_bh(&ab->base_lock);
+				reg_info = ab->reg_info[ar->pdev_idx];
+				answered = reg_info &&
+					   !memcmp(reg_info->alpha2, ar->alpha2, 2);
+				spin_unlock_bh(&ab->base_lock);
+				if (answered)
+					break;
+
+				reinit_completion(&ar->regd_update_completed);
+			}
+
+			if (answered) {
+				ah->regd_updated = false;
+				ath12k_regd_update(ar, false);
+			} else {
+				ath12k_warn(ab, "no regulatory answer for country %c%c within 500 ms\n",
+					    ar->alpha2[0], ar->alpha2[1]);
+			}
+		}
+	}
+
 	rcu_assign_pointer(ab->pdevs_active[ar->pdev_idx],
 			   &ab->pdevs[ar->pdev_idx]);
 
