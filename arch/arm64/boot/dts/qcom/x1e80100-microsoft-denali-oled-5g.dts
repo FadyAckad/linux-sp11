@@ -7,7 +7,11 @@
 / {
 	model = "Microsoft Surface Pro 11th Edition (OLED, 5G)";
 
-	/* The modem's supply switch, as on the CRD */
+	/*
+	 * The modem's supply switch, as on the CRD. It stays on through a system
+	 * sleep and is not PCIe 5's slot supply: a modem that loses its power
+	 * boots its firmware from scratch after every wake.
+	 */
 	vreg_wwan: regulator-wwan {
 		compatible = "regulator-fixed";
 
@@ -22,13 +26,12 @@
 		pinctrl-names = "default";
 
 		regulator-boot-on;
+		regulator-always-on;
 	};
 };
 
 /* The Snapdragon X65 modem, wired as on the CRD */
 &pcie5 {
-	vddpe-3v3-supply = <&vreg_wwan>;
-
 	pinctrl-0 = <&pcie5_default>;
 	pinctrl-names = "default";
 
