@@ -2040,6 +2040,16 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		return -ENODATA;
 	}
 
+	/*
+	 * Let the SoC's controllers suspend and resume in parallel. The PM core
+	 * runs platform devices one after the other unless they carry this flag,
+	 * and each link's resume costs about 0.35 s of mandated delays
+	 * (PCIE_T_PVPERL_MS, the polling steps of dw_pcie_wait_for_link(),
+	 * PCIE_RESET_CONFIG_WAIT_MS). The core still orders a controller after
+	 * its parent and suppliers, and its root port and endpoints after it.
+	 */
+	device_enable_async_suspend(dev);
+
 	pm_runtime_enable(dev);
 	ret = pm_runtime_get_sync(dev);
 	if (ret < 0)
