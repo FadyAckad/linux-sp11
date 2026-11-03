@@ -144,28 +144,11 @@ static void ps883x_reset(struct ps883x_retimer *retimer)
 	retimer->in_reset = true;
 }
 
-static int ps883x_configure(struct ps883x_retimer *retimer, int cfg0,
-			    int cfg1, int cfg2, bool reset)
+static int ps883x_write_status(struct ps883x_retimer *retimer, int cfg0,
+			       int cfg1, int cfg2)
 {
 	struct device *dev = &retimer->client->dev;
 	int ret;
-
-	if (reset) {
-		ps883x_reset(retimer);
-
-		return 0;
-	} else if (retimer->in_reset) {
-		ret = ps883x_enable_vregs(retimer);
-		if (ret)
-			return ret;
-
-		gpiod_set_value(retimer->reset_gpio, 0);
-
-		/* firmware initialization delay */
-		msleep(60);
-
-		retimer->in_reset = false;
-	}
 
 	ret = regmap_write(retimer->regmap, REG_USB_PORT_CONN_STATUS_0, cfg0);
 	if (ret) {
@@ -184,6 +167,52 @@ static int ps883x_configure(struct ps883x_retimer *retimer, int cfg0,
 		dev_err(dev, "failed to write conn_status_2: %d\n", ret);
 		return ret;
 	}
+
+	return 0;
+}
+
+static int ps883x_configure(struct ps883x_retimer *retimer, int cfg0,
+			    int cfg1, int cfg2, bool reset)
+{
+	int ret;
+
+	if (reset) {
+		ps883x_reset(retimer);
+
+		return 0;
+	} else if (retimer->in_reset) {
+		ret = ps883x_enable_vregs(retimer);
+		if (ret)
+			return ret;
+
+		gpiod_set_value(retimer->reset_gpio, 0);
+
+		/* firmware initialization delay */
+		msleep(60);
+
+		retimer->in_reset = false;
+
+		/*
+		 * Announce the connection before its mode. Given the final
+		 * configuration as its first word after a reset, the PS8830
+		 * on the Surface Pro 11 brings up a USB 3 link with the plug
+		 * reversed on neither port: the host stays in Polling and the
+		 * device never falls back to USB 2. Written in two steps, with
+		 * the orientation and the mode 30 ms after "connection
+		 * present", the same link trains at once.
+		 */
+		ret = ps883x_write_status(retimer,
+					  CONN_STATUS_0_CONNECTION_PRESENT,
+					  0x00, 0x00);
+		if (ret)
+			return ret;
+
+		msleep(30);
+	}
+
+	ret = ps883x_write_status(retimer, cfg0, cfg1, cfg2);
+	if (ret)
+		return ret;
 
 	usleep_range(20000, 30000);
 
