@@ -1019,6 +1019,10 @@
 	};
 };
 
+&crypto {
+	status = "disabled";
+};
+
 &gpu {
 	status = "okay";
 };
