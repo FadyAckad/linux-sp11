@@ -18,8 +18,11 @@
 #include <linux/io.h>
 #include <linux/iopoll.h>
 #include <linux/kernel.h>
+#include <linux/ktime.h>
 #include <linux/limits.h>
+#include <linux/list.h>
 #include <linux/init.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_pci.h>
 #include <linux/pci.h>
@@ -35,6 +38,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/units.h>
+#include <linux/workqueue.h>
 
 #include "../../pci.h"
 #include "../pci-host-common.h"
@@ -2136,6 +2140,128 @@ static int qcom_pcie_parse_legacy_binding(struct qcom_pcie *pcie)
 	return 0;
 }
 
+/*
+ * Probing again once the endpoint is ready
+ *
+ * dw_pcie_host_init() waits 0.9 s for the link, once. An endpoint that the
+ * firmware hands over powered and out of reset, such as a modem that boots
+ * from its own flash, may not be ready for the link when its PERST# is first
+ * released. The probe then fails with -ETIMEDOUT, PERST# stays asserted and
+ * nothing probes the controller again. Such an endpoint asserts WAKE# once it
+ * is ready and finds itself in reset.
+ *
+ * Where the controller's node names that line, wait for it and have the bus
+ * probe the controller again. This runs from a work item and not in the probe
+ * itself: do_init_module() waits for every asynchronous probe, so a probe that
+ * waited for the endpoint would hold up each module load of that time.
+ */
+#define QCOM_PCIE_REPROBE_ATTEMPTS	3
+#define QCOM_PCIE_REPROBE_WAKE_MS	20000
+#define QCOM_PCIE_REPROBE_POLL_MS	100
+#define QCOM_PCIE_REPROBE_PAUSE_MS	5000
+
+struct qcom_pcie_reprobe {
+	struct list_head list;
+	struct work_struct work;
+	struct device *dev;
+};
+
+static LIST_HEAD(qcom_pcie_reprobe_list);
+static DEFINE_MUTEX(qcom_pcie_reprobe_lock);
+
+static void qcom_pcie_reprobe_wait_for_wake(struct device *dev)
+{
+	ktime_t timeout = ktime_add_ms(ktime_get(), QCOM_PCIE_REPROBE_WAKE_MS);
+	ktime_t start = ktime_get();
+	struct gpio_desc *wake;
+	int asserted;
+
+	/* The probe that failed holds no reference to the line any more */
+	wake = gpiod_get(dev, "wake", GPIOD_IN);
+	if (IS_ERR(wake)) {
+		dev_warn(dev, "WAKE# not readable (%pe), waiting %u ms\n", wake,
+			 QCOM_PCIE_REPROBE_WAKE_MS);
+		msleep(QCOM_PCIE_REPROBE_WAKE_MS);
+		return;
+	}
+
+	for (;;) {
+		asserted = gpiod_get_value_cansleep(wake);
+		if (asserted > 0 || ktime_after(ktime_get(), timeout))
+			break;
+		msleep(QCOM_PCIE_REPROBE_POLL_MS);
+	}
+
+	/* The probe may ask for the line itself */
+	gpiod_put(wake);
+
+	dev_info(dev, "WAKE# %s after %lld ms\n",
+		 asserted > 0 ? "asserted" : "not asserted",
+		 ktime_ms_delta(ktime_get(), start));
+}
+
+static void qcom_pcie_reprobe_work(struct work_struct *work)
+{
+	struct qcom_pcie_reprobe *reprobe =
+		container_of(work, struct qcom_pcie_reprobe, work);
+	struct device *dev = reprobe->dev;
+	unsigned int attempt;
+
+	for (attempt = 1; attempt <= QCOM_PCIE_REPROBE_ATTEMPTS; attempt++) {
+		if (attempt > 1)
+			msleep(QCOM_PCIE_REPROBE_PAUSE_MS);
+
+		qcom_pcie_reprobe_wait_for_wake(dev);
+
+		dev_info(dev, "Probing again (%u of %u)\n", attempt,
+			 QCOM_PCIE_REPROBE_ATTEMPTS);
+
+		/*
+		 * Bound, by this or by a probe requested through sysfs, or
+		 * gone. A probe that fails here finds its entry on the list
+		 * and schedules nothing.
+		 */
+		if (device_attach(dev))
+			break;
+	}
+
+	mutex_lock(&qcom_pcie_reprobe_lock);
+	list_del(&reprobe->list);
+	mutex_unlock(&qcom_pcie_reprobe_lock);
+
+	put_device(dev);
+	kfree(reprobe);
+}
+
+static void qcom_pcie_reprobe_schedule(struct device *dev)
+{
+	struct qcom_pcie_reprobe *reprobe;
+
+	if (!of_property_present(dev->of_node, "wake-gpios"))
+		return;
+
+	mutex_lock(&qcom_pcie_reprobe_lock);
+
+	list_for_each_entry(reprobe, &qcom_pcie_reprobe_list, list) {
+		if (reprobe->dev == dev)
+			goto out_unlock;
+	}
+
+	reprobe = kzalloc(sizeof(*reprobe), GFP_KERNEL);
+	if (!reprobe)
+		goto out_unlock;
+
+	reprobe->dev = get_device(dev);
+	INIT_WORK(&reprobe->work, qcom_pcie_reprobe_work);
+	list_add(&reprobe->list, &qcom_pcie_reprobe_list);
+	queue_work(system_long_wq, &reprobe->work);
+
+	dev_info(dev, "The endpoint was not ready, probing again once it asserts WAKE#\n");
+
+out_unlock:
+	mutex_unlock(&qcom_pcie_reprobe_lock);
+}
+
 static int qcom_pcie_probe(struct platform_device *pdev)
 {
 	struct qcom_pcie_perst *perst, *tmp_perst;
@@ -2298,6 +2424,8 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	ret = dw_pcie_host_init(pp);
 	if (ret) {
 		dev_err_probe(dev, ret, "cannot initialize host\n");
+		if (ret == -ETIMEDOUT)
+			qcom_pcie_reprobe_schedule(dev);
 		goto err_phy_exit;
 	}
 
