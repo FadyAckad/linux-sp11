@@ -32,6 +32,14 @@
 
 /* The Snapdragon X65 modem, wired as on the CRD */
 &pcie5 {
+	/*
+	 * The modem's WAKE#, for the controller's driver alone: it probes the
+	 * controller again once a modem that missed the first probe asserts
+	 * the line. Named in the port's node the line would become a wake-up
+	 * interrupt of the system sleep.
+	 */
+	wake-gpios = <&tlmm 151 GPIO_ACTIVE_LOW>;
+
 	pinctrl-0 = <&pcie5_default>;
 	pinctrl-names = "default";
 
@@ -63,6 +71,13 @@
 			function = "gpio";
 			drive-strength = <2>;
 			bias-disable;
+		};
+
+		wake-n-pins {
+			pins = "gpio151";
+			function = "gpio";
+			drive-strength = <2>;
+			bias-pull-up;
 		};
 	};
 
