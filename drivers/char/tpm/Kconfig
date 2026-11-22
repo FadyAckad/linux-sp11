@@ -243,6 +243,16 @@ config TCG_FTPM_TEE
 	help
 	  This driver proxies for firmware TPM running in TEE.
 
+config TCG_QCOM_MSSECAPP
+	tristate "TPM 2.0 through the Qualcomm QSEE application mssecapp"
+	depends on QCOM_QSEECOM
+	help
+	  This driver supports the TPM 2.0 (Microsoft Pluton) of Snapdragon X
+	  laptops sold with Windows. The QSEE application qcom.tz.mssecapp
+	  returns the address of the TPM's command response buffer and starts
+	  each command in it. To compile this driver as a module, choose M
+	  here; the module will be called tpm_qcom_mssecapp.
+
 config TCG_SVSM
 	tristate "SNP SVSM vTPM interface"
 	depends on AMD_MEM_ENCRYPT
