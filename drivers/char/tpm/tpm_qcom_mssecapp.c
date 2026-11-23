@@ -21,6 +21,7 @@
 #include <linux/module.h>
 #include <linux/sizes.h>
 #include <linux/slab.h>
+#include <linux/workqueue.h>
 
 #include "tpm.h"
 
@@ -79,6 +80,9 @@ struct tpm_mssecapp {
 	void __iomem *rsp;
 	u32 cmd_size;
 	u32 rsp_size;
+	struct tpm_chip *chip;
+	struct work_struct register_work;
+	bool registered;
 };
 
 /* One request: its command ID at the start of a TZ buffer, the response after. */
@@ -160,6 +164,28 @@ static const struct tpm_class_ops tpm_mssecapp_ops = {
 	.flags = TPM_OPS_AUTO_STARTUP,
 	.send = tpm_mssecapp_send,
 };
+
+/*
+ * The TPM's first self test after the firmware takes seconds, and the probe
+ * runs where the kernel's start waits for it, so the chip is registered from
+ * a work item.
+ */
+static void tpm_mssecapp_register(struct work_struct *work)
+{
+	struct tpm_mssecapp *priv = container_of(work, struct tpm_mssecapp,
+						 register_work);
+	int ret;
+
+	ret = tpm2_probe(priv->chip);
+	if (!ret)
+		ret = tpm_chip_register(priv->chip);
+	if (ret) {
+		dev_err(priv->chip->dev.parent, "TPM not registered: %d\n", ret);
+		return;
+	}
+
+	priv->registered = true;
+}
 
 /* A buffer the control area names, which must lie after the control area. */
 static void __iomem *mssecapp_buffer(void __iomem *base, phys_addr_t phys,
@@ -257,19 +283,22 @@ static int tpm_mssecapp_probe(struct auxiliary_device *aux_dev,
 
 	dev_set_drvdata(&chip->dev, priv);
 	chip->flags |= TPM_CHIP_FLAG_SYNC;
+	priv->chip = chip;
 
-	ret = tpm2_probe(chip);
-	if (ret)
-		return ret;
+	INIT_WORK(&priv->register_work, tpm_mssecapp_register);
+	queue_work(system_dfl_long_wq, &priv->register_work);
 
-	return tpm_chip_register(chip);
+	return 0;
 }
 
 static void tpm_mssecapp_remove(struct auxiliary_device *aux_dev)
 {
 	struct tpm_chip *chip = auxiliary_get_drvdata(aux_dev);
+	struct tpm_mssecapp *priv = dev_get_drvdata(&chip->dev);
 
-	tpm_chip_unregister(chip);
+	cancel_work_sync(&priv->register_work);
+	if (priv->registered)
+		tpm_chip_unregister(chip);
 }
 
 static const struct auxiliary_device_id tpm_mssecapp_id_table[] = {
