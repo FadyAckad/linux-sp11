@@ -66,6 +66,16 @@
 	firmware-name = "qcom/x1e80100/microsoft/Denali/qcdxkmsuc8380.mbn";
 };
 
+/*
+ * The X1P64100 is the X1E80100 (Hamoa) die, so its video codec and firmware
+ * are the OLED model's, not the X1P42100 (Purwa) ones.
+ */
+&iris {
+	firmware-name = "qcom/x1e80100/microsoft/Denali/qcvss8380.mbn";
+
+	status = "okay";
+};
+
 &remoteproc_adsp {
 	firmware-name = "qcom/x1e80100/microsoft/Denali/qcadsp8380.mbn",
 			"qcom/x1e80100/microsoft/Denali/adsp_dtb.mbn";
